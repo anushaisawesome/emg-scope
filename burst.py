@@ -109,10 +109,6 @@ def main() -> None:
     streaks = LineCollection([], capstyle="round", zorder=3)
     ax.add_collection(streaks)
 
-    core_ring = Circle((0, 0), 0.03, fill=False, lw=1.0, zorder=4,
-                       edgecolor=(0.8, 0.7, 1.0, 0.35))
-    ax.add_patch(core_ring)
-
     rings = []
     ring_artists = [Circle((0, 0), 0.05, fill=False, lw=1.2, zorder=2,
                            edgecolor=(0, 0, 0, 0)) for _ in range(6)]
@@ -200,13 +196,6 @@ def main() -> None:
         else:
             streaks.set_segments([])
 
-        # core: thin pulsing ring, flares with effort
-        breathe = 0.025 + 0.008 * np.sin(t * 0.06) + 0.12 * e
-        flare = cmap(0.45 + 0.5 * min(e, 1.0))
-        core_ring.set_radius(breathe)
-        core_ring.set_linewidth(0.8 + 2.5 * e)
-        core_ring.set_edgecolor((flare[0], flare[1], flare[2], 0.25 + 0.5 * e))
-
         del rings[6:]
         for r_state, art in zip(rings, ring_artists):
             r_state[0] += 0.04
@@ -223,7 +212,7 @@ def main() -> None:
 
         meter.set_text(f"effort {min(effort, 1.5):4.2f}"
                        + ("  [calibrating]" if env.calibrating else ""))
-        return (streaks, core_ring, meter, *ring_artists)
+        return (streaks, meter, *ring_artists)
 
     ani = FuncAnimation(fig, update, interval=FRAME_MS, blit=True,
                         cache_frame_data=False)
