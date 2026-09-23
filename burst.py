@@ -62,7 +62,7 @@ class Envelope:
         elif self.level < self.floor * 1.2:
             self.floor += 0.005 * (self.level * 1.5 + 8 - self.floor)
         # more sensitive than v1: smaller divisor, lower minimum
-        effort = (self.level - self.floor) / max(self.floor * 3.5, 25.0)
+        effort = (self.level - self.floor) / max(self.floor * 2.2, 16.0)
         return float(np.clip(effort, 0.0, 1.5))
 
 
