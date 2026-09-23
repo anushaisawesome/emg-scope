@@ -55,7 +55,7 @@ class Envelope:
         if len(samples):
             self.center += 0.02 * (samples.mean() - self.center)
             burst = np.abs(samples - self.center).mean()
-            self.level += 0.3 * (burst - self.level)
+            self.level += 0.55 * (burst - self.level)
         if self.calibrating > 0:
             self.calibrating -= 1
             self.floor += 0.1 * (self.level * 1.5 + 8 - self.floor)
@@ -157,25 +157,26 @@ def main() -> None:
         nonlocal pos, vel, age, spin, effort_s, prev_effort, t
         t += 1
         effort = env.feed(read_samples())
-        effort_s += 0.22 * (effort - effort_s)
+        effort_s += 0.35 * (effort - effort_s)
+        e = max(effort, effort_s)
 
         if effort - prev_effort > 0.18 and not env.calibrating:
             rings.append([0.04, 0.5, 1.6])
         prev_effort = effort
 
-        n = int(3 + effort_s * 190)
+        n = int(3 + e * 190)
         theta = rng.uniform(0, 2 * np.pi, n)
         rad = rng.uniform(0.01, 0.05, n) ** 0.8
         dirs = np.column_stack([np.cos(theta), np.sin(theta)])
         pos = np.vstack([pos, dirs * rad[:, None]])
-        vel = np.vstack([vel, dirs * (0.002 + 0.02 * effort_s)])
+        vel = np.vstack([vel, dirs * (0.002 + 0.02 * e)])
         age = np.concatenate([age, np.zeros(n)])
         spin = np.concatenate([spin, rng.choice([-1, 1], n)])
 
         if len(pos):
-            f = flow(pos, t, effort_s)
+            f = flow(pos, t, e)
             f[:, 0] *= np.where(spin > 0, 1.0, 0.85)   # two families of motion
-            vel += f * (0.0012 + 0.0075 * effort_s)
+            vel += f * (0.0012 + 0.0075 * e)
             pos += vel
             vel *= 0.965
             age += 1
@@ -187,24 +188,24 @@ def main() -> None:
         life = 1 - age / LIFE
         if len(pos):
             # streak = short trail along velocity; longer & hotter with effort
-            trail = 5 + 26 * effort_s
+            trail = 5 + 26 * e
             segs = np.stack([pos - vel * trail, pos], axis=1)
-            heat = np.clip(0.10 + 0.80 * life * (0.30 + 0.70 * min(effort_s, 1.0)), 0, 0.96)
+            heat = np.clip(0.10 + 0.80 * life * (0.30 + 0.70 * min(e, 1.0)), 0, 0.96)
 
             col = cmap(heat)
-            col[:, 3] = np.clip(life, 0, 1) ** 0.7 * (0.6 + 0.4 * effort_s)
+            col[:, 3] = np.clip(life, 0, 1) ** 0.7 * (0.6 + 0.4 * e)
             streaks.set_segments(segs)
             streaks.set_color(np.clip(col, 0, 1))
-            streaks.set_linewidth(0.7 + 1.4 * life * (0.4 + effort_s))
+            streaks.set_linewidth(0.7 + 1.4 * life * (0.4 + e))
         else:
             streaks.set_segments([])
 
         # core: thin pulsing ring, flares with effort
-        breathe = 0.025 + 0.008 * np.sin(t * 0.06) + 0.12 * effort_s
-        flare = cmap(0.45 + 0.5 * min(effort_s, 1.0))
+        breathe = 0.025 + 0.008 * np.sin(t * 0.06) + 0.12 * e
+        flare = cmap(0.45 + 0.5 * min(e, 1.0))
         core_ring.set_radius(breathe)
-        core_ring.set_linewidth(0.8 + 2.5 * effort_s)
-        core_ring.set_edgecolor((flare[0], flare[1], flare[2], 0.25 + 0.5 * effort_s))
+        core_ring.set_linewidth(0.8 + 2.5 * e)
+        core_ring.set_edgecolor((flare[0], flare[1], flare[2], 0.25 + 0.5 * e))
 
         del rings[6:]
         for r_state, art in zip(rings, ring_artists):
