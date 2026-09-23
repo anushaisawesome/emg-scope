@@ -25,9 +25,9 @@ from matplotlib.collections import LineCollection
 from matplotlib.patches import Circle
 
 BAUD = 115200
-MAX_PARTICLES = 3200
+MAX_PARTICLES = 1300
 FRAME_MS = 33
-LIFE = 110  # frames
+LIFE = 80  # frames
 
 
 def find_port() -> str:
@@ -107,16 +107,17 @@ def main() -> None:
     fig.canvas.manager.set_window_title("clench")
 
     streaks = LineCollection([], capstyle="round", zorder=3)
-    glow = LineCollection([], capstyle="round", zorder=2)
     ax.add_collection(streaks)
-    ax.add_collection(glow)
 
     core_ring = Circle((0, 0), 0.03, fill=False, lw=1.0, zorder=4,
                        edgecolor=(0.8, 0.7, 1.0, 0.35))
     ax.add_patch(core_ring)
 
     rings = []
-    ring_artists = []
+    ring_artists = [Circle((0, 0), 0.05, fill=False, lw=1.2, zorder=2,
+                           edgecolor=(0, 0, 0, 0)) for _ in range(6)]
+    for _a in ring_artists:
+        ax.add_patch(_a)
 
     meter = ax.text(0.02, 0.02, "", transform=ax.transAxes,
                     color="#2e2e3a", fontsize=9, family="monospace", zorder=5)
@@ -153,7 +154,7 @@ def main() -> None:
         return np.column_stack([fx, fy])
 
     def update(_):
-        nonlocal pos, vel, age, spin, effort_s, prev_effort, t, rings
+        nonlocal pos, vel, age, spin, effort_s, prev_effort, t
         t += 1
         effort = env.feed(read_samples())
         effort_s += 0.22 * (effort - effort_s)
@@ -162,7 +163,7 @@ def main() -> None:
             rings.append([0.04, 0.5, 1.6])
         prev_effort = effort
 
-        n = int(4 + effort_s * 300)
+        n = int(3 + effort_s * 190)
         theta = rng.uniform(0, 2 * np.pi, n)
         rad = rng.uniform(0.01, 0.05, n) ** 0.8
         dirs = np.column_stack([np.cos(theta), np.sin(theta)])
@@ -191,19 +192,12 @@ def main() -> None:
             heat = np.clip(0.10 + 0.80 * life * (0.30 + 0.70 * min(effort_s, 1.0)), 0, 0.96)
 
             col = cmap(heat)
-            col[:, 3] = np.clip(life, 0, 1) ** 0.7 * (0.55 + 0.4 * effort_s)
+            col[:, 3] = np.clip(life, 0, 1) ** 0.7 * (0.6 + 0.4 * effort_s)
             streaks.set_segments(segs)
             streaks.set_color(np.clip(col, 0, 1))
-            streaks.set_linewidth(0.5 + 0.9 * life * (0.4 + effort_s))
-
-            gcol = cmap(np.clip(heat, 0, 0.9))
-            gcol[:, 3] = 0.08 * np.clip(life, 0, 1) * (1 + 1.5 * effort_s)
-            glow.set_segments(segs)
-            glow.set_color(np.clip(gcol, 0, 1))
-            glow.set_linewidth(2.5 + 5.0 * life * (0.4 + effort_s))
+            streaks.set_linewidth(0.7 + 1.4 * life * (0.4 + effort_s))
         else:
             streaks.set_segments([])
-            glow.set_segments([])
 
         # core: thin pulsing ring, flares with effort
         breathe = 0.025 + 0.008 * np.sin(t * 0.06) + 0.12 * effort_s
@@ -212,10 +206,7 @@ def main() -> None:
         core_ring.set_linewidth(0.8 + 2.5 * effort_s)
         core_ring.set_edgecolor((flare[0], flare[1], flare[2], 0.25 + 0.5 * effort_s))
 
-        while len(ring_artists) < len(rings):
-            a = Circle((0, 0), 0.05, fill=False, lw=1.2, zorder=2)
-            ax.add_patch(a)
-            ring_artists.append(a)
+        del rings[6:]
         for r_state, art in zip(rings, ring_artists):
             r_state[0] += 0.04
             r_state[1] *= 0.90
@@ -227,13 +218,13 @@ def main() -> None:
         for i, art in enumerate(ring_artists):
             if i >= len(rings) or i not in keep:
                 art.set_edgecolor((0, 0, 0, 0))
-        rings = [rings[i] for i in keep]
+        rings[:] = [rings[i] for i in keep]
 
         meter.set_text(f"effort {min(effort, 1.5):4.2f}"
                        + ("  [calibrating]" if env.calibrating else ""))
-        return streaks, glow, meter
+        return (streaks, core_ring, meter, *ring_artists)
 
-    ani = FuncAnimation(fig, update, interval=FRAME_MS, blit=False,
+    ani = FuncAnimation(fig, update, interval=FRAME_MS, blit=True,
                         cache_frame_data=False)
     plt.show()
     ser.close()
