@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Clench-reactive particle burst — visual demo for the EMG rig.
+"""Clench-reactive flow-field burst — visual demo for the EMG rig.
 
-Rest: deep-violet embers drifting and swirling around a faintly breathing
-core. Clench: the core flares, a shockwave ring fires, and a storm of
-hot particles spirals outward — density, speed and colour all scale with
-effort.
+TouchDesigner-style: thin luminous streaks on black, swirling in a flow
+field. Rest = slow drifting filaments. Clench = the field energises,
+streaks lengthen and heat up, a shockwave ring fires on sharp onsets.
 
 Usage:
     venv/bin/python burst.py            # auto-detects the serial port
@@ -22,12 +21,13 @@ import serial
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from matplotlib.collections import LineCollection
 from matplotlib.patches import Circle
 
 BAUD = 115200
-MAX_PARTICLES = 2600
+MAX_PARTICLES = 3200
 FRAME_MS = 33
-LIFE = 100  # frames
+LIFE = 110  # frames
 
 
 def find_port() -> str:
@@ -55,13 +55,14 @@ class Envelope:
         if len(samples):
             self.center += 0.02 * (samples.mean() - self.center)
             burst = np.abs(samples - self.center).mean()
-            self.level += 0.25 * (burst - self.level)
+            self.level += 0.3 * (burst - self.level)
         if self.calibrating > 0:
             self.calibrating -= 1
-            self.floor += 0.1 * (self.level * 1.5 + 10 - self.floor)
+            self.floor += 0.1 * (self.level * 1.5 + 8 - self.floor)
         elif self.level < self.floor * 1.2:
-            self.floor += 0.005 * (self.level * 1.5 + 10 - self.floor)
-        effort = (self.level - self.floor) / max(self.floor * 6, 40.0)
+            self.floor += 0.005 * (self.level * 1.5 + 8 - self.floor)
+        # more sensitive than v1: smaller divisor, lower minimum
+        effort = (self.level - self.floor) / max(self.floor * 3.5, 25.0)
         return float(np.clip(effort, 0.0, 1.5))
 
 
@@ -92,7 +93,7 @@ def main() -> None:
     pos = np.zeros((0, 2))
     vel = np.zeros((0, 2))
     age = np.zeros(0)
-    spin = np.zeros(0)          # per-particle swirl direction/strength
+    spin = np.zeros(0)
 
     plt.rcParams["toolbar"] = "none"
     fig, ax = plt.subplots(figsize=(10, 7), facecolor="black")
@@ -105,28 +106,20 @@ def main() -> None:
     fig.subplots_adjust(0, 0, 1, 1)
     fig.canvas.manager.set_window_title("clench")
 
-    # vignette background: deep indigo center fading to black
-    yy, xx = np.mgrid[-1:1:240j, -1:1:240j]
-    r = np.sqrt(xx**2 + yy**2)
-    bg = np.zeros((240, 240, 3))
-    glowc = np.array([0.10, 0.06, 0.22])
-    bg += glowc * np.clip(1 - r, 0, 1)[..., None] ** 2.2
-    ax.imshow(bg, extent=[-1, 1, -1, 1], zorder=0, interpolation="bilinear")
+    streaks = LineCollection([], capstyle="round", zorder=3)
+    glow = LineCollection([], capstyle="round", zorder=2)
+    ax.add_collection(streaks)
+    ax.add_collection(glow)
 
-    halo = ax.scatter([], [], s=[], lw=0, zorder=2)   # soft glow layer
-    core = ax.scatter([], [], s=[], lw=0, zorder=3)   # bright centers
+    core_ring = Circle((0, 0), 0.03, fill=False, lw=1.0, zorder=4,
+                       edgecolor=(0.8, 0.7, 1.0, 0.35))
+    ax.add_patch(core_ring)
 
-    # breathing core: three concentric translucent discs
-    core_discs = [Circle((0, 0), 0.02, color=(0.7, 0.5, 1.0, a), lw=0, zorder=1)
-                  for a in (0.10, 0.06, 0.03)]
-    for c in core_discs:
-        ax.add_patch(c)
-
-    rings = []  # [radius, alpha, width] shockwaves
+    rings = []
     ring_artists = []
 
     meter = ax.text(0.02, 0.02, "", transform=ax.transAxes,
-                    color="#3a3a4a", fontsize=9, family="monospace", zorder=5)
+                    color="#2e2e3a", fontsize=9, family="monospace", zorder=5)
 
     cmap = matplotlib.colormaps["inferno"]
     rng = np.random.default_rng(7)
@@ -144,73 +137,89 @@ def main() -> None:
 
     fig.canvas.mpl_connect("key_press_event", on_key)
 
+    def flow(p, tt, e):
+        """Swirling flow field: rotation + travelling waves, energised by effort."""
+        x, y = p[:, 0], p[:, 1]
+        r = np.sqrt(x * x + y * y) + 1e-6
+        # base rotation (tangential)
+        fx, fy = -y / r, x / r
+        # travelling wave curl for organic filaments
+        k = 3.2
+        fx = fx + 0.8 * np.sin(k * y + tt * 0.03) * np.cos(k * x - tt * 0.017)
+        fy = fy + 0.8 * np.cos(k * x + tt * 0.023) * np.sin(k * y + tt * 0.013)
+        # gentle outward push that grows with effort
+        fx += (0.15 + 1.6 * e) * x / r * np.exp(-r * 1.8)
+        fy += (0.15 + 1.6 * e) * y / r * np.exp(-r * 1.8)
+        return np.column_stack([fx, fy])
+
     def update(_):
         nonlocal pos, vel, age, spin, effort_s, prev_effort, t, rings
         t += 1
         effort = env.feed(read_samples())
-        effort_s += 0.18 * (effort - effort_s)
+        effort_s += 0.22 * (effort - effort_s)
 
-        # shockwave on sharp onset
-        if effort - prev_effort > 0.28 and not env.calibrating:
-            rings.append([0.05, 0.55, 2.5 + 2 * effort])
+        if effort - prev_effort > 0.18 and not env.calibrating:
+            rings.append([0.04, 0.5, 1.6])
         prev_effort = effort
 
-        # spawn
-        n = int(2 + effort_s * 240)
+        n = int(4 + effort_s * 300)
         theta = rng.uniform(0, 2 * np.pi, n)
-        speed = (0.003 + 0.052 * effort_s) * rng.uniform(0.25, 1.0, n) ** 0.7
+        rad = rng.uniform(0.01, 0.05, n) ** 0.8
         dirs = np.column_stack([np.cos(theta), np.sin(theta)])
-        pos = np.vstack([pos, dirs * rng.uniform(0.01, 0.04, n)[:, None]])
-        vel = np.vstack([vel, dirs * speed[:, None]])
+        pos = np.vstack([pos, dirs * rad[:, None]])
+        vel = np.vstack([vel, dirs * (0.002 + 0.02 * effort_s)])
         age = np.concatenate([age, np.zeros(n)])
-        spin = np.concatenate([spin, rng.choice([-1, 1], n) * rng.uniform(0.2, 1.0, n)])
+        spin = np.concatenate([spin, rng.choice([-1, 1], n)])
 
-        # physics: drift, swirl, gentle slow-down
         if len(pos):
-            perp = np.column_stack([-pos[:, 1], pos[:, 0]])
-            norm = np.linalg.norm(pos, axis=1, keepdims=True) + 1e-6
-            vel += perp / norm * spin[:, None] * 0.0009 * (1 + 2 * effort_s)
+            f = flow(pos, t, effort_s)
+            f[:, 0] *= np.where(spin > 0, 1.0, 0.85)   # two families of motion
+            vel += f * (0.0012 + 0.0075 * effort_s)
             pos += vel
-            vel *= 0.986
+            vel *= 0.965
             age += 1
-        alive = (age < LIFE) & (np.abs(pos) < 1.25).all(axis=1)
+        alive = (age < LIFE) & (np.abs(pos) < 1.3).all(axis=1)
         pos, vel, age, spin = pos[alive], vel[alive], age[alive], spin[alive]
         if len(pos) > MAX_PARTICLES:
             pos, vel, age, spin = (a[-MAX_PARTICLES:] for a in (pos, vel, age, spin))
 
         life = 1 - age / LIFE
-        heat = np.clip(0.12 + 0.75 * life * (0.30 + 0.70 * min(effort_s, 1.0)), 0, 0.96)
+        if len(pos):
+            # streak = short trail along velocity; longer & hotter with effort
+            trail = 5 + 26 * effort_s
+            segs = np.stack([pos - vel * trail, pos], axis=1)
+            heat = np.clip(0.10 + 0.80 * life * (0.30 + 0.70 * min(effort_s, 1.0)), 0, 0.96)
 
-        offs = pos if len(pos) else np.zeros((0, 2))
-        # halo: big, soft, translucent
-        hcol = cmap(heat)
-        hcol[:, 3] = 0.10 * np.clip(life, 0, 1) ** 1.5 * (1 + effort_s)
-        halo.set_offsets(offs)
-        halo.set_sizes(60 + 240 * life * (0.25 + effort_s))
-        halo.set_facecolor(np.clip(hcol, 0, 1))
-        # core: small, bright
-        ccol = cmap(np.clip(heat + 0.18, 0, 0.98))
-        ccol[:, 3] = np.clip(life, 0, 1) ** 0.8
-        core.set_offsets(offs)
-        core.set_sizes(2.5 + 13 * life * (0.35 + 0.8 * effort_s))
-        core.set_facecolor(np.clip(ccol, 0, 1))
+            col = cmap(heat)
+            col[:, 3] = np.clip(life, 0, 1) ** 0.7 * (0.55 + 0.4 * effort_s)
+            streaks.set_segments(segs)
+            streaks.set_color(np.clip(col, 0, 1))
+            streaks.set_linewidth(0.5 + 0.9 * life * (0.4 + effort_s))
 
-        # breathing core: slow idle pulse + effort flare
-        breathe = 0.016 + 0.006 * np.sin(t * 0.06) + 0.10 * effort_s
-        flare = cmap(0.35 + 0.6 * min(effort_s, 1.0))
-        for i, c in enumerate(core_discs):
-            c.set_radius(breathe * (1 + 0.9 * i))
-            c.set_color((flare[0], flare[1], flare[2], (0.14, 0.07, 0.035)[i] * (0.5 + effort_s)))
+            gcol = cmap(np.clip(heat, 0, 0.9))
+            gcol[:, 3] = 0.08 * np.clip(life, 0, 1) * (1 + 1.5 * effort_s)
+            glow.set_segments(segs)
+            glow.set_color(np.clip(gcol, 0, 1))
+            glow.set_linewidth(2.5 + 5.0 * life * (0.4 + effort_s))
+        else:
+            streaks.set_segments([])
+            glow.set_segments([])
 
-        # shockwave rings
+        # core: thin pulsing ring, flares with effort
+        breathe = 0.025 + 0.008 * np.sin(t * 0.06) + 0.12 * effort_s
+        flare = cmap(0.45 + 0.5 * min(effort_s, 1.0))
+        core_ring.set_radius(breathe)
+        core_ring.set_linewidth(0.8 + 2.5 * effort_s)
+        core_ring.set_edgecolor((flare[0], flare[1], flare[2], 0.25 + 0.5 * effort_s))
+
         while len(ring_artists) < len(rings):
-            a = Circle((0, 0), 0.05, fill=False, lw=2, zorder=2)
+            a = Circle((0, 0), 0.05, fill=False, lw=1.2, zorder=2)
             ax.add_patch(a)
             ring_artists.append(a)
         for r_state, art in zip(rings, ring_artists):
-            r_state[0] += 0.035
+            r_state[0] += 0.04
             r_state[1] *= 0.90
-            rc = cmap(0.75)
+            rc = cmap(0.8)
             art.set_radius(r_state[0])
             art.set_linewidth(r_state[2])
             art.set_edgecolor((rc[0], rc[1], rc[2], max(r_state[1], 0)))
@@ -222,7 +231,7 @@ def main() -> None:
 
         meter.set_text(f"effort {min(effort, 1.5):4.2f}"
                        + ("  [calibrating]" if env.calibrating else ""))
-        return halo, core, meter
+        return streaks, glow, meter
 
     ani = FuncAnimation(fig, update, interval=FRAME_MS, blit=False,
                         cache_frame_data=False)
