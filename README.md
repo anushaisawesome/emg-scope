@@ -1,6 +1,6 @@
 # emg-scope
 
-Tools for a DIY EMG (muscle signal) rig: an ESP32 streams ADC samples over USB serial; Python on the laptop turns them into a live oscilloscope, a muscle-reactive visual, or OSC for TouchDesigner. Built as the working stack for a wearable EMG → real-time visuals instrument (and because buying an oscilloscope was not in the budget).
+Tools for a DIY EMG (muscle signal) rig: an ESP32 streams ADC samples over USB serial; Python on the laptop turns them into a live oscilloscope, a muscle-reactive visual, or OSC for TouchDesigner. Built as the working stack for a wearable EMG → real-time visuals instrument.
 
 ## What's here
 
