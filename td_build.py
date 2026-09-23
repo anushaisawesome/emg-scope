@@ -1,4 +1,4 @@
-# TouchDesigner network builder — run INSIDE TouchDesigner's Textport:
+# TouchDesigner network builder - run INSIDE TouchDesigner's Textport:
 #   exec(open('/Users/anusha/emg-scope/td_build.py').read())
 #
 # Builds in /project1: OSC In (port 9001, from bridge.py) driving a
@@ -8,7 +8,7 @@
 # Start the bridge on the Mac FIRST so the OSC channel exists:
 #   venv/bin/python bridge.py
 #
-# If this script prints WARN lines, paste them back to Claude — par
+# If this script prints WARN lines, paste them back to Claude - par
 # names vary slightly between TD versions and each is fixable.
 
 root = op('/project1')
@@ -49,7 +49,7 @@ P(flow, ['mono'], True)
 P(flow, ['period'], 2.5)
 P(flow, ['tz'], expr="absTime.seconds*0.15")
 
-# --- energy source: colour noise, opacity ∝ effort ---------------------
+# --- energy source: colour noise, opacity prop to effort ---------------------
 src = root.create(noiseTOP, 'noise_src')
 P(src, ['resolutionw', 'resolution1'], 1280)
 P(src, ['resolutionh', 'resolution2'], 720)
